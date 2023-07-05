@@ -7,11 +7,10 @@ c.execute('''CREATE TABLE IF NOT EXISTS cars
              (id INTEGER PRIMARY KEY AUTOINCREMENT,
               model TEXT,
               price INTEGER,
-              url TEXT,
-              photo TEXT,
               mileage TEXT,
-              location TEXT,
-              unique_id TEXT,
+              ria_url TEXT,
+              photo_ria TEXT,
+              auction_url TEXT,
               is_sold INTEGER DEFAULT 0)''')
 
 c.execute('''CREATE TABLE IF NOT EXISTS price_history

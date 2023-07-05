@@ -1,40 +1,89 @@
+import sqlite3
+from dataclasses import dataclass
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
 BASE_URl = "https://auto.ria.com/uk/"
-CARS_URL = urljoin(BASE_URl, "search/?categories.main.id=1&brand.id[0]=79&model.id[0]=2104&indexName=auto,order_auto,newauto_search&damage.not=0&country.import.usa.not=0&size=10")
+CARS_URL = urljoin(BASE_URl, "search/?categories.main.id=1&brand.id[0]=79&model.id[0]=2104&indexName=auto,order_auto,newauto_search&damage.not=0&country.import.usa.not=0&size=100")
 
 
-def parse_auto_ria():
+@dataclass
+class Car:
+    car_id: int
+    model: str
+    price: float
+    mileage: str
+    ria_url: str
+    photo_ria: list[str]
+    auction_url: str
+    is_sold: bool
+
+
+def parse_cars_urls():
     response = requests.get(CARS_URL).content
     soup = BeautifulSoup(response, 'html.parser')
-    print(soup.prettify())
 
-    car_names = soup.find_all('div', class_='content')
-    for name in car_names:
-        title_and_year = name.find('a', class_='address').text.strip()
-        print(title_and_year)
+    cars = soup.find_all('div', class_='content-bar')
+    car_urls = []
+    for car in cars:
+        url = car.find('a', class_='m-link-ticket')["href"]
+        car_urls.append(url)
+    return car_urls
 
-    car_prices = soup.find_all('div', class_='price-ticket')
-    for car_price in car_prices:
-        price = car_price.find('span', class_='bold size22 green').text.strip()
-        print(price + "$")
 
-    car_values = soup.find_all('div', class_='definition-data')
-    for car_value in car_values:
-        mileage = car_value.find('li', class_='item-char js-race').text.strip()
-        location = car_value.find('li', class_='item-char view-location js-location').text.split()
-        print(mileage, location[0])
+def parse_one_page(url):
+    page = requests.get(url).content
+    page_soup = BeautifulSoup(page, 'html.parser')
+    return page_soup
 
-    car_urls = soup.find_all('div', class_='content-bar')
+
+def insert_car_data(model, price, mileage, ria_url, photo_ria, auction_url, is_sold):
+    conn = sqlite3.connect("car_data.db")
+    cursor = conn.cursor()
+
+    insert_query = '''
+    INSERT INTO cars (model, price, mileage, ria_url, photo_ria, auction_url, is_sold)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    '''
+    record_data = (model, price, mileage, ria_url, ",".join(photo_ria), auction_url, is_sold)
+    cursor.execute(insert_query, record_data)
+
+    conn.commit()
+    conn.close()
+
+
+def parse_one_car():
+    car_urls = parse_cars_urls()
+
     for car_url in car_urls:
-        url = car_url.find('a', class_='m-link-ticket')["href"]
-        image = car_url.find('img', class_='outline m-auto')["src"]
-        print(url, image)
+        parse_url = parse_one_page(car_url)
 
-        # # Обробка фотографій автомобіля
-        # photos = listing.find_all('img')
-        # photo_links = [photo['src'] for photo in photos]
-parse_auto_ria()
+        model = parse_url.find('h1', class_='head').text.strip()
+        price = parse_url.find('div', class_='price_value').text.strip()
+        mileage = parse_url.find('span', class_='size18').text.strip()
+        ria_url = car_url
+
+        # page_url_parts = car_url.split("_")
+        # url_part = page_url_parts[3].split(".")
+        # page_id = url_part[0]
+
+        photos = parse_url.find_all("img", class_="outline m-auto")
+        photo_links = [photo['src'] for photo in photos]
+        photo_ria = photo_links[:5]
+
+        auction_script = parse_url.select_one("script[data-bidfax-pathname]")
+        part_url = auction_script.get("data-bidfax-pathname")[7:]
+        auction_url = f"https://bidfax.info{part_url}"
+
+        is_sold = bool(parse_url.find("div", class_="gallery-order sold-out carousel"))
+
+        insert_car_data(model, price, mileage, ria_url, photo_ria, auction_url, is_sold)
+def get_car_urls(page):
+    car_urls = page.find_all('div', class_='content-bar')
+    return [car_url for car_url in car_urls]
+
+
+
+parse_one_car()
